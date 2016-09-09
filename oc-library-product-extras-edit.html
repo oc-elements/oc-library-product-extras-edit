@@ -1,10 +1,14 @@
 <link rel="import" href="../polymer/polymer.html">
 
+<link rel="import" href="../oc-product-library-api/oc-product-library-api.html">
+<link rel="import" href="../oc-product-library-extras-api/oc-product-library-extras-api.html">
+<link rel="import" href="../oc-list-selection/oc-list-selection.html">
+
 <!--
 `oc-library-product-extras-edit`
 Element to edit library product extras on the Ordercloud platform
 
-@demo demo/index.html 
+@demo demo/index.html
 -->
 
 <dom-module id="oc-library-product-extras-edit">
@@ -12,22 +16,160 @@ Element to edit library product extras on the Ordercloud platform
     <style>
       :host {
         display: block;
+        padding-bottom: 10px;
+      }
+
+      small {
+        text-align: right;
+        display: block;
+        margin-right: 20px;
+      }
+
+      paper-button {
+        margin: 10px 0;
       }
     </style>
-    <h2>Hello [[prop1]]</h2>
+
+    <oc-product-library-api id="prodApi"></oc-product-library-api>
+    <oc-product-library-extras-api id="extraApi"></oc-product-library-extras-api>
+
+    <oc-list-selection selected-list="[[selectedList]]" selectable-list="[[selectableList]]"></oc-list-selection>
+    <small>Only extra sets with extras in will display here</small>
+
+    <paper-button on-tap="_updateExtras" raised>Update Extras</paper-button>
+
   </template>
 
   <script>
     Polymer({
 
       is: 'oc-library-product-extras-edit',
+      behaviors: [OC.Behaviours.ApiConsumer],
 
       properties: {
-        prop1: {
-          type: String,
-          value: 'oc-library-product-extras-edit',
+        organisationId: Number,
+        loaded: Boolean,
+        productId : {
+          type: Number,
+          computed: "_computeProductId(product)"
         },
+
+        selectedList : {
+          type: Array,
+          value: function() {
+            return [];
+          }
+        },
+        selectableList: {
+          type: Array,
+          value: function() {
+            return [];
+          }
+        },
+
+        allExtraSets: Array,
+
+        loading: {
+          type: Boolean,
+          notify: true
+        }
+
       },
+
+      observers: [
+        "refresh(productId)",
+        "_computeExtraSets(allExtraSets, product.extraSets)"
+      ],
+
+      refresh : function(){
+
+        if (!this.productId || this.loaded) {
+          return
+        }
+
+        this.loading = true;
+
+        this.getExtraSets()
+
+        this.loaded = true;
+
+      },
+
+      getExtraSets : function(){
+        return this.$.extraApi.getExtraSets(1, -1)
+                .then(this._setPropertyResponseResults.bind(this, 'allExtraSets'))
+                .catch(this.fire.bind(this, 'options_error', 'Could not load extra sets'))
+                .finally(this.set.bind(this, 'loading', false));
+      },
+
+      _computeExtraSets : function(allExtraSets, productExtraSets){
+
+        allExtraSets.forEach(function(extraSet){
+
+          var isProductExtraSet = false;
+
+          productExtraSets.forEach(function(productExtraSet){
+            if(extraSet.id === productExtraSet.id) {
+              isProductExtraSet = true;
+
+              this.push('selectedList', extraSet);
+            }
+          }.bind(this));
+
+          if(!isProductExtraSet && extraSet.extras.length){
+            this.push('selectableList', extraSet);
+          }
+
+        }.bind(this));
+
+      },
+
+      _computeProductId : function(product){
+        return product.id;
+      },
+
+      _updateExtras : function(){
+        this.loading = true;
+
+        var promisesToExecute = [],
+                selected = this.selectedList,
+                original = this.product.extraSets;
+
+        selected.forEach(function(obj){
+          var isInOriginal = false;
+
+          for(var i=0; i<original.length; i++) {
+            if(obj.id === original[i].id){
+              isInOriginal = true;
+            }
+          }
+
+          if(!isInOriginal) {
+            promisesToExecute.push(this.$.prodApi.addProductExtraSet(this.productId, obj.id))
+          }
+
+        }.bind(this))
+
+        original.forEach(function(obj){
+          var isInselected = false;
+
+          for(var i=0; i<selected.length; i++) {
+            if(obj.id === selected[i].id){
+              isInselected = true;
+            }
+          }
+
+          if(!isInselected) {
+            promisesToExecute.push(this.$.prodApi.removeProductExtraSet(this.productId, obj.id))
+          }
+
+        }.bind(this))
+
+        Promise.all(promisesToExecute)
+                .catch(this.fire.bind(this, 'extra-set-error', 'Failed to load extra sets'))
+                .finally(this.set.bind(this, 'loading', false));
+      }
+
 
     });
   </script>
